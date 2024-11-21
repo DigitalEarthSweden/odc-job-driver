@@ -16,6 +16,19 @@ The general flow includes:
 3. The processor reports success or failure (`report_finished_processing` or `report_processing_failure`).
 4. Products can also be updated or deleted via specialized job functions (`get_job_for_update`, `get_job_for_deletion_of_product`).
 
+
+## Environment dependecies
+
+| Column           | Default Value       | Description        |
+|------------------|---------------------|--------------------|
+| BNP_DB_HOSTNAME  | "datasource.main.rise-ck8s.com |
+| BNP_DB_PORT      | 30103               | 30103 for test, 30102 for production odc-db |
+| BNP_DB_USERNAME  | bnp_db_rw           | A user in datacube posgtgres instance that can read agdc.dataset_location and write the bnp schema |    
+| BNP_DB_PASSWORD  | bnp_password        | Obviously we update this for real.|
+| BNP_DB_DATABASE  | datacube            | We use datacube's database for now |
+
+
+
 ## Key Tables
 
 ### 1. **`bnp.process_executions`**
@@ -81,7 +94,7 @@ Fetches a job requiring deletion from `bnp.process_executions`. On finish, the j
 ## Minimal Example
 
 ```python
-from dap_lite.bnpdriver import BNPDriver
+from dap_lite.driver import BNPDriver
 
 driver = BNPDriver()
 worker_id = "local-12345"
