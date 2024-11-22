@@ -2,6 +2,7 @@ from enum import Enum
 import os
 import psycopg2
 from psycopg2.extras import DictCursor
+from psycopg2.extras import RealDictCursor
 
 
 def get_worker_id():
@@ -92,6 +93,33 @@ class BNPDriver:
         with self.connection.cursor() as cur:
             cur.execute(query, (processor_id, job_id, message))
             self.connection.commit()
+    # Tracing interface to get full traceability on the processing
+    def store_log_message(self, worker_id, baseline, job_id, l1c_source, message):
+        """Stores a log message in the bnp.log table."""
+        query = """
+            SELECT bnp.store_log_message(%s, %s, %s, %s, %s);
+        """
+        with self.connection.cursor() as cur:
+            cur.execute(query, (worker_id, baseline, job_id, l1c_source, message))
+            self.connection.commit()
+
+    def get_processed_products_by_worker(self, worker_id):
+        """Retrieves products processed by a specific worker."""
+        query = """
+            SELECT * FROM bnp.get_processed_products_by_worker(%s);
+        """
+        with self.connection.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(query, (worker_id,))
+            return cur.fetchall()
+
+    def get_logs_for_product(self, l1c_source):
+        """Retrieves logs for a specific L1C product."""
+        query = """
+            SELECT * FROM bnp.get_logs_for_product(%s);
+        """
+        with self.connection.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(query, (l1c_source,))
+            return cur.fetchall()
 
     def close(self):
         """
