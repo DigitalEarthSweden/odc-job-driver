@@ -123,11 +123,11 @@ class BNPDriver:
                 return
         print(f"Mock report_failure: Job {job_id} not found.")
 
-    def store_log_message(self, worker_id, baseline, job_id, l1c_source, message):
+    def store_log_message(self, baseline, job_id, l1c_source, message):
         """Stores a log message."""
         self.logs.append(
             {
-                "worker_id": worker_id,
+                "worker_id": self.worker_id,
                 "baseline": baseline,
                 "job_id": job_id,
                 "l1c_source": l1c_source,

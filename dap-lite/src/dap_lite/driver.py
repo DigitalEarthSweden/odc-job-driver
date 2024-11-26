@@ -107,13 +107,13 @@ class BNPDriver:
             self.connection.commit()
 
     # Tracing interface to get full traceability on the processing
-    def store_log_message(self, worker_id, baseline, job_id, l1c_source, message):
+    def store_log_message(self, baseline, job_id, l1c_source, message):
         """Stores a log message in the bnp.log table."""
         query = """
             SELECT bnp.store_log_message(%s, %s, %s, %s, %s);
         """
         with self.connection.cursor() as cur:
-            cur.execute(query, (worker_id, baseline, job_id, l1c_source, message))
+            cur.execute(query, (self.worker_id, baseline, job_id, l1c_source, message))
             self.connection.commit()
 
     def get_processed_products_by_worker(self, worker_id):

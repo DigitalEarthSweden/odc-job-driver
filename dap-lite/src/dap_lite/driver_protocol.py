@@ -25,7 +25,7 @@ class BNPDriverProtocol(Protocol):
         pass
 
     def store_log_message(
-        self, worker_id: str, baseline: str, job_id: int, l1c_source: str, message: str
+        self, baseline: str, job_id: int, l1c_source: str, message: str
     ) -> None:
         """Store a log message for the given job."""
         pass
