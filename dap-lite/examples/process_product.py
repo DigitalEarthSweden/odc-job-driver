@@ -3,7 +3,7 @@ import sys
 import os
 import csv
 from datetime import datetime
-from dap_lite.driver import BNPDriver
+from dap_lite import get_driver, DriverType
 
 # Get the directory of the current script
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -27,7 +27,7 @@ with open("timings.log", "a", newline="") as logfile:
             ["timestamp", "method", "duration_seconds", "job_id", "details"]
         )
 
-    driver = BNPDriver()
+    driver = get_driver(DriverType.MOCK)
     MY_PROCESSOR_ID = 1
 
     try:

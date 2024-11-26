@@ -1,5 +1,6 @@
 from enum import Enum
 import os
+from typing import Optional, Tuple
 import psycopg2
 from psycopg2.extras import DictCursor
 from psycopg2.extras import RealDictCursor
@@ -27,6 +28,8 @@ class BNPDriver:
         self.db_user = os.getenv("BNP_DB_USERNAME", "bnp_db_rw")
         self.db_password = os.getenv("BNP_DB_PASSWORD", "bnp_password")
         self.db_name = os.getenv("BNP_DB_DATABASE", "datacube")
+        self.worker_id: str = get_worker_id()
+        self.current_job_id_and_url: Tuple[Optional[int], Optional[str]] = None
 
         if not self.db_password:
             raise ValueError("BNP_DB_PASSWORD is not set in the environment variables")
@@ -43,7 +46,6 @@ class BNPDriver:
     def get_next_job(
         self,
         processor_id: int,
-        worker_id: str = get_worker_id(),
         src_pattern: str = "MSIL1C",
     ):
         """
@@ -53,13 +55,23 @@ class BNPDriver:
         SELECT * FROM bnp.get_next_processing_job(%s, %s, %s)
         """
         with self.connection.cursor() as cur:
-            cur.execute(query, (processor_id, worker_id, src_pattern))
+            cur.execute(query, (processor_id, self.worker_id, src_pattern))
             result = cur.fetchone()
             if result:
                 self.current_job_id = result["job_id"]
                 self.current_src_path = result["src_uri"]
-                return result["job_id"], result["src_uri"]
-            return None, None
+                self.current_job_id_and_url = result["job_id"], result["src_uri"]
+            else:
+                self.current_job_id_and_url = None, None
+        return self.current_job_id_and_url
+
+    @property
+    def current_job(self) -> Tuple[Optional[int], Optional[str]]:
+        return self.current_job_id_and_url
+
+    @property
+    def worker_id(self) -> str:
+        return self.worker_id
 
     def report_finished(
         self, processor_id: str, job_id: int, dst_path: str = "s3://dummy/path"
@@ -93,6 +105,7 @@ class BNPDriver:
         with self.connection.cursor() as cur:
             cur.execute(query, (processor_id, job_id, message))
             self.connection.commit()
+
     # Tracing interface to get full traceability on the processing
     def store_log_message(self, worker_id, baseline, job_id, l1c_source, message):
         """Stores a log message in the bnp.log table."""

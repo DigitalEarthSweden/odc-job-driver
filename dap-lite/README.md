@@ -94,9 +94,9 @@ Fetches a job requiring deletion from `bnp.process_executions`. On finish, the j
 ## Minimal Example
 
 ```python
-from dap_lite.driver import BNPDriver
+from dap_lite import get_driver, DriverType
 
-driver = BNPDriver()
+driver = driver = get_driver(DriverType.MOCK) # or DB
 worker_id = "local-12345"
 
 # Get the next job for processing
