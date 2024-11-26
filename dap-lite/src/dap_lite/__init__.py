@@ -11,7 +11,9 @@ class DriverType(Enum):
     MOCK = "mock"
 
 
-def get_driver(driver_type: DriverType = DriverType.MOCK) -> BNPDriverProtocol:
+def get_driver(
+    driver_type: DriverType = DriverType.MOCK, **kwargs  # noqa
+) -> BNPDriverProtocol:
     if driver_type == DriverType.DB:
         return DB_BNPDriver()  # Return the actual DB driver
     elif driver_type == DriverType.MOCK:
