@@ -45,6 +45,16 @@ BEGIN
 END
 $$;
 
+CREATE TABLE bnp.globals (
+    variable_name TEXT PRIMARY KEY,
+    value JSONB NOT NULL
+);
+
+-- Insert variables
+INSERT INTO bnp.globals (variable_name, value)
+VALUES
+    ('power', '"on"');
+
  
 -- Create the user if it doesn't exist, it can only read odc but also write bnp
 DO $$
@@ -55,7 +65,10 @@ BEGIN
 END
 $$;
  
- 
+CREATE INDEX idx_processor_status ON bnp.process_executions (processor_id, status);
+CREATE INDEX idx_job_id ON bnp.process_executions (id);
+
+
 
 -----------------------------------------------------------------------------------
 --                              bnp.get_next_processing_job
@@ -68,7 +81,19 @@ CREATE OR REPLACE FUNCTION bnp.get_next_processing_job(
 RETURNS TABLE (job_id INTEGER, src_uri TEXT) AS $$
 DECLARE
     product RECORD;
+    power_status TEXT;
 BEGIN
+    -- Check if power is 'on'
+    SELECT value INTO power_status
+    FROM bnp.globals
+    WHERE variable_name = 'power';
+
+    IF NOT FOUND OR power_status <> 'on' THEN
+        -- If power is not 'on' or variable not found, return NULL
+        RETURN QUERY SELECT NULL::INTEGER, NULL::TEXT;
+        RETURN;
+    END IF;
+
     -- Find the next available product from agdc.dataset_location
     SELECT id, 
            's3:' || REPLACE(uri_body, '.stac.json', '.SAFE') AS uri
@@ -87,6 +112,7 @@ BEGIN
     -- If no product is found, return NULL
     IF NOT FOUND THEN
         RETURN QUERY SELECT NULL::INTEGER, NULL::TEXT;
+        RETURN;
     END IF;
 
     -- Create a new process_execution row
@@ -107,6 +133,7 @@ BEGIN
     RETURN QUERY SELECT job_id, product.uri;
 END;
 $$ LANGUAGE plpgsql;
+
 
 
 -----------------------------------------------------------------------------------
@@ -166,15 +193,51 @@ BEGIN
     UPDATE bnp.process_executions
     SET status = 'failed',
         err_msg = p_message,
-        updated_at = NOW()
+        updated_at = NOW(),
+        finished_at = NOW()
     WHERE id = p_job_id
       AND processor_id = p_processor_id;
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE INDEX idx_processor_status ON bnp.process_executions (processor_id, status);
-CREATE INDEX idx_job_id ON bnp.process_executions (id);
 
+-- --------------------------------------------------------------------------------
+--                           bnp.products_view
+-- --------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION bnp.get_logs_from_product_src(
+    p_l1c_source TEXT
+)
+RETURNS TABLE (ts TIMESTAMP, message TEXT, worker_id TEXT) AS $$
+    SELECT
+        l.ts,
+        l.message,
+        pe.worker_id
+    FROM
+        bnp.log l
+    INNER JOIN
+        bnp.process_executions pe ON l.job_id = pe.id
+    INNER JOIN
+        agdc.dataset_location dl ON pe.src_product_id = dl.id
+    WHERE
+        dl.uri_scheme || '://' || dl.uri_body = p_l1c_source;
+$$ LANGUAGE sql;
+
+
+-- --------------------------------------------------------------------------------
+--                           bnp.processing_stats
+-- --------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION bnp.processing_stats()
+RETURNS TABLE(status TEXT, count BIGINT) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT status, count(*)
+    FROM bnp.process_executions
+    GROUP BY status;
+END;
+$$ LANGUAGE plpgsql;
+
+
+    worker_last_logs wll ON ws.worker_id = wll.worker_id;
 
 
 -- Grant usage and read-only access to agdc schema
@@ -204,3 +267,5 @@ GRANT USAGE, SELECT ON SEQUENCE bnp.process_executions_id_seq TO bnp_db_rw;
 GRANT USAGE, CREATE ON SCHEMA bnp TO bnp_db_rw;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA bnp TO bnp_db_rw;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA bnp TO bnp_db_rw;
+ALTER DEFAULT PRIVILEGES IN SCHEMA bnp
+GRANT USAGE, SELECT ON SEQUENCES TO bnp_db_rw;

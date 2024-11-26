@@ -20,6 +20,10 @@ class JobAction(Enum):
     DELETE = "delete"
 
 
+class BNPDriverException(Exception):
+    pass
+
+
 class BNPDriver:
 
     def __init__(self, **kwargs):  # noqa
@@ -103,6 +107,10 @@ class BNPDriver:
         query = """
             SELECT bnp.store_log_message(%s, %s);
         """
+        if not self.current_job_id:
+            raise BNPDriverException(
+                "Current Job is either already reported or never started."
+            )
         with self.connection.cursor() as cur:
             cur.execute(query, (self.current_job_id, message))
             self.connection.commit()
