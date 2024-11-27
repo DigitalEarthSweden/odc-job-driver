@@ -70,7 +70,7 @@ Retrieves the next product to process from the ODC index. Locks the row to ensur
 
 **SQL Gist**:
 ```sql
-SELECT id, 's3:' || REPLACE(uri_body, '.stac.json', '.SAFE') AS uri
+SELECT id, 's3:' || REPLACE(uri_body, '.stac_item.json', '.SAFE') AS uri
 FROM agdc.dataset_location
 WHERE uri_body LIKE '%' || p_src_pattern || '%MSIL1C%'
   AND NOT EXISTS (

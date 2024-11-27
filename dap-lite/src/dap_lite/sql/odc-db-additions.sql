@@ -105,8 +105,8 @@ BEGIN
     -- Attempt to find and lock a product
     RAISE NOTICE 'Attempting to select product from agdc.dataset_location.';
     FOR product IN
-        SELECT id, 's3:' || REPLACE(uri_body, '.stac.json', '.SAFE') AS uri
-        FROM agdc.dataset_location source
+        SELECT  id,'s3:' || REGEXP_REPLACE(uri_body, '\.stac(_item)?\.json$', '') || '.SAFE' AS uri
+        FROM bnp.dataset_location source
         WHERE source.uri_body LIKE '%' || p_src_pattern || '%'
           AND NOT EXISTS (
               SELECT 1

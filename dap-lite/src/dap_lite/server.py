@@ -398,8 +398,8 @@ async def products_summary(
     def get_product_name_from_uri(uri: str):
         fields = uri.split("MSIL1C_")
         if len(fields) < 2:
-            print(uri)
-            return "Kalle"
+            print("........................................................", uri)
+            return uri
         return f"S2A_MSIL1C{fields[1]}".replace(".SAFE", "")
 
     # Apply the link transformation
