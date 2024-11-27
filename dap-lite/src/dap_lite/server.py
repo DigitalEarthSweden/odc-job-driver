@@ -31,7 +31,7 @@ DATABASE_URL = (
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-
+reload = "<meta http-equiv='refresh' content='2'>"
 table_options = {
     "justify": "center",
     "render_links": True,
@@ -70,6 +70,9 @@ css = (
 )
 
 
+# ------------------------------------------------------------------------------------------------------------------
+# INTERNAL                                     get_navigation_table
+# ------------------------------------------------------------------------------------------------------------------
 def get_navigation_table() -> str:
     """
     Generate a navigation table for the FastAPI dashboard.
@@ -96,6 +99,9 @@ def get_navigation_table() -> str:
     """
 
 
+# ------------------------------------------------------------------------------------------------------------------
+# INTERNAL
+# ------------------------------------------------------------------------------------------------------------------
 def get_system_metrics():
     """
     Collects system metrics and returns them as a pandas DataFrame.
@@ -167,6 +173,9 @@ def get_table(query: str, parameters: dict = None):
         return pd.DataFrame(rows, columns=result.keys())
 
 
+# -------------------------------------------------------------------------------------
+# API  GET                               /                                      -->root
+# -------------------------------------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def root():
     """Landing page with navigation."""
@@ -205,9 +214,11 @@ async def root():
             {get_navigation_table()}
             <center>
             <div class="container">
-                <h1>Job Supervision Dashboard</h1>
+                <h1>BNP Supervision Dashboard</h1>
          
-                <p>Welcome to the BNP Supervision Dashboard. Use the navigation above to explore various views.</p>
+                <p>Welcome to the BNP Supervision Dashboard.
+                   Use the navigation above to explore various views.
+                   You may also starve the workers by shutting the feed off below:</p>
                 <img src="{gif_url}" width="480" height="293" frameBorder="0"></iframe>
                 <p><a href="{action_link}" class="btn btn-primary">{action_text}</a></p>
                 {sys_info_table} </center>
@@ -234,7 +245,9 @@ async def startup():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
-
+# -------------------------------------------------------------------------------------
+# API GET                          /shutdown                                -->shutdown
+# -------------------------------------------------------------------------------------
 @app.get("/shutdown")
 async def shutdown():
     try:
@@ -250,6 +263,9 @@ async def shutdown():
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
 
+# -------------------------------------------------------------------------------------
+# API GET                     /status_summary                         -->status_summary
+# -------------------------------------------------------------------------------------
 @app.get("/status-summary", response_class=HTMLResponse)
 async def status_summary():
     """View summarizing the job statuses."""
@@ -265,6 +281,7 @@ async def status_summary():
         content=f"""
         <html>
             <head>
+                {reload}
                 <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
                 <style>{css}</style>
             </head>
@@ -280,6 +297,9 @@ async def status_summary():
     )
 
 
+# -------------------------------------------------------------------------------------
+# API GET                       /workers                              ->workers_summary
+# -------------------------------------------------------------------------------------
 @app.get("/workers", response_class=HTMLResponse)
 async def workers_summary():
     def get_worker_name_with_link(row):
@@ -287,7 +307,7 @@ async def workers_summary():
             f'<a href="/products?worker_id={row["worker_id"]}">{row["worker_id"]}</a>'
         )
 
-    query = "SELECT * from bnp.workers_view;"
+    query = "SELECT * from bnp.workers_view order by last_seen desc;"
     pd = get_table(query)
     if pd.empty:
         return HTMLResponse(
@@ -309,6 +329,7 @@ async def workers_summary():
         content=f"""
         <html>
             <head>
+                {reload}
                 <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
                 <style>{css}</style>
             </head>
@@ -324,16 +345,47 @@ async def workers_summary():
     )
 
 
+# -------------------------------------------------------------------------------------
+# INTERNAL                       get_product_from_job_id
+# -------------------------------------------------------------------------------------
+def get_product_from_job_id(job_id: int) -> str:
+    """
+    Fetch the product name for a given job ID by querying the database.
+    """
+    query = "SELECT bnp.get_product_from_job_id(:job_id) AS product_name"
+    params = {"job_id": job_id}
+
+    try:
+        # Assuming `get_table` handles database connection and query execution
+        result = get_table(query, params)
+        if len(result) == 0:
+            return "Unknown Product"
+        return result.iloc[0]["product_name"]  # Assuming result is a DataFrame
+    except Exception as e:
+        print(f"Error fetching product name for job_id {job_id}: {e}")
+        return "Unknown Product"
+
+
+# -------------------------------------------------------------------------------------
+# API GET                     /products                              ->products_summary
+# -------------------------------------------------------------------------------------
 @app.get("/products", response_class=HTMLResponse)
-async def products_summary(worker_id: Optional[str] = None):
+async def products_summary(
+    worker_id: Optional[str] = None, only_failed: Optional[bool] = False
+):
     """View summarizing the worker status."""
     query = "SELECT * from bnp.products_view"
     params = {}
     if worker_id:
         query += " WHERE worker_id = :worker_id"
+        if only_failed:
+            query += " AND status='failed'"
         params = {"worker_id": worker_id}
+
+    elif only_failed:
+        query += " WHERE status='failed'"
     pd = get_table(query, params)
-    pd["state"] = pd["state"].map(lambda x: format_status(x))
+    pd["status"] = pd["status"].map(lambda x: format_status(x))
 
     def get_product_name_with_link(row):
         """
@@ -348,12 +400,14 @@ async def products_summary(worker_id: Optional[str] = None):
         if len(fields) < 2:
             print(uri)
             return "Kalle"
-        return f"S2A_MSIL1C{fields[1]}".replace(".stac.json", "")
+        return f"S2A_MSIL1C{fields[1]}".replace(".SAFE", "")
 
     # Apply the link transformation
     if len(pd) > 0:
         pd["source_path"] = pd.apply(get_product_name_with_link, axis=1)
-        pd = pd[["source_path", "total_execution_time", "state"]]
+        pd["err_msg"] = pd["err_msg"].map(lambda x: "" if x is None else x)
+
+        pd = pd[["source_path", "total_execution_time", "status", "err_msg"]]
         html_table = itables.to_html_datatable(
             pd, style="table-layout:auto;width:100%;"
         )
@@ -361,11 +415,13 @@ async def products_summary(worker_id: Optional[str] = None):
         html_table = "No products found"
         if worker_id:
             html_table += f" for worker {worker_id}"
-    worker_presentation = f" for worker {worker_id}" if worker_id else ""
+    worker_presentation = f" for worker {worker_id} " if worker_id else ""
+    reload_if = reload if worker_id and len(pd) < 20 else ""
     return HTMLResponse(
         content=f"""
         <html>
             <head>
+                {reload_if}
                 <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
                 <style>{css}</style>
             </head>
@@ -381,6 +437,9 @@ async def products_summary(worker_id: Optional[str] = None):
     )
 
 
+# -------------------------------------------------------------------------------------
+# API GET                        /logs{job_id}                       ->get_logs_for_job
+# -------------------------------------------------------------------------------------
 @app.get("/logs/{job_id}", response_class=HTMLResponse)
 async def get_logs_for_job(job_id: int):
     """
@@ -399,7 +458,7 @@ async def get_logs_for_job(job_id: int):
     """
     parameters = {"p_job_id": job_id}
     logs_df = get_table(query, parameters)
-
+    job_id = f"{job_id}-{get_product_from_job_id(job_id=job_id)}"
     if logs_df.empty:
         return HTMLResponse(
             content=f"""
@@ -423,13 +482,14 @@ async def get_logs_for_job(job_id: int):
         content=f"""
         <html>
             <head>
+                 {reload}
                 <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
                 <style>{css}</style>
             </head>
             <body>
                {get_navigation_table()}
                 <div class="container">
-                    <h1>Logs for Job ID {job_id}</h1>
+                    <h2>Logs for Job ID {job_id}</h2>
                     <div class="table-responsive">{logs_table}</div>
                 </div>
             </body>

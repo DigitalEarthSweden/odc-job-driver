@@ -83,56 +83,74 @@ DECLARE
     product RECORD;
     power_status TEXT;
 BEGIN
+    -- Log: Starting function execution
+    RAISE NOTICE 'Starting get_next_processing_job for processor: %, worker: %', p_processor_id, p_worker_id;
+
     -- Check if power is 'on'
-    SELECT value INTO power_status
+    SELECT value::TEXT INTO power_status
     FROM bnp.globals
     WHERE variable_name = 'power';
 
+    -- Remove surrounding quotes from JSONB text
+    power_status := TRIM(BOTH '"' FROM power_status);
+
+    RAISE NOTICE 'Power status: %', power_status;
+
     IF NOT FOUND OR power_status <> 'on' THEN
-        -- If power is not 'on' or variable not found, return NULL
+        RAISE NOTICE 'Power is not ON. Returning NULL.';
         RETURN QUERY SELECT NULL::INTEGER, NULL::TEXT;
         RETURN;
     END IF;
 
-    -- Find the next available product from agdc.dataset_location
-    SELECT id, 
-           's3:' || REPLACE(uri_body, '.stac.json', '.SAFE') AS uri
-    INTO product
-    FROM agdc.dataset_location source
-    WHERE source.uri_body LIKE '%' || p_src_pattern || '%'  -- Match the desired product type
-      AND NOT EXISTS (
-          SELECT 1
-          FROM bnp.process_executions pe
-          WHERE pe.src_product_id = source.id
-      )
-    ORDER BY source.added DESC -- Process newer products first
-    LIMIT 1
-    FOR UPDATE SKIP LOCKED;
+    -- Attempt to find and lock a product
+    RAISE NOTICE 'Attempting to select product from agdc.dataset_location.';
+    FOR product IN
+        SELECT id, 's3:' || REPLACE(uri_body, '.stac.json', '.SAFE') AS uri
+        FROM agdc.dataset_location source
+        WHERE source.uri_body LIKE '%' || p_src_pattern || '%'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM bnp.process_executions pe
+              WHERE pe.src_product_id = source.id
+          )
+        ORDER BY source.added DESC
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED
+    LOOP
+        BEGIN
+            RAISE NOTICE 'Product found: ID: %, URI: %', product.id, product.uri;
 
-    -- If no product is found, return NULL
-    IF NOT FOUND THEN
-        RETURN QUERY SELECT NULL::INTEGER, NULL::TEXT;
-        RETURN;
-    END IF;
+            -- Insert a new process_execution row
+            INSERT INTO bnp.process_executions (
+                processor_id, src_product_id, worker_id, status, attempts, action
+            )
+            VALUES (
+                p_processor_id, 
+                product.id, 
+                p_worker_id,
+                'running', 
+                1, 
+                'process'
+            )
+            RETURNING id INTO job_id;
 
-    -- Create a new process_execution row
-    INSERT INTO bnp.process_executions (
-        processor_id, src_product_id, worker_id, status, attempts, action
-    )
-    VALUES (
-        p_processor_id, 
-        product.id, 
-        p_worker_id,
-        'running', 
-        1, 
-        'process'
-    )
-    RETURNING id INTO job_id;
+            RAISE NOTICE 'Job created: ID: %', job_id;
 
-    -- Return the process_execution ID and the product's URI
-    RETURN QUERY SELECT job_id, product.uri;
+            -- Return the job ID and URI
+            RETURN QUERY SELECT job_id, product.uri;
+
+        EXCEPTION WHEN unique_violation THEN
+            RAISE NOTICE 'Conflict: Job already created by another process.';
+            CONTINUE;
+        END;
+    END LOOP;
+
+    -- If no product was successfully claimed, return NULL
+    RAISE NOTICE 'No available products found. Returning NULL.';
+    RETURN QUERY SELECT NULL::INTEGER, NULL::TEXT;
 END;
 $$ LANGUAGE plpgsql;
+
 
 
 
@@ -165,6 +183,11 @@ BEGIN
         finished_time = NOW()
     WHERE id = _job_id
       AND processor_id = _processor_id;
+    
+    PERFORM  bnp.store_log_message(
+        _job_id, 
+        'Final status set to FINISHED' 
+    );
 END;
 $$ LANGUAGE plpgsql;
 
@@ -194,34 +217,43 @@ BEGIN
     SET status = 'failed',
         err_msg = p_message,
         updated_at = NOW(),
-        finished_at = NOW()
+        finished_time = NOW()
     WHERE id = p_job_id
       AND processor_id = p_processor_id;
+
+    PERFORM  bnp.store_log_message(
+    p_job_id, 
+    'Final status set to FAILED' 
+);
 END;
 $$ LANGUAGE plpgsql;
 
 
 -- --------------------------------------------------------------------------------
---                           bnp.products_view
+--                            bnp.get_product_from_job_id
 -- --------------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION bnp.get_logs_from_product_src(
-    p_l1c_source TEXT
-)
-RETURNS TABLE (ts TIMESTAMP, message TEXT, worker_id TEXT) AS $$
-    SELECT
-        l.ts,
-        l.message,
-        pe.worker_id
-    FROM
-        bnp.log l
-    INNER JOIN
-        bnp.process_executions pe ON l.job_id = pe.id
-    INNER JOIN
-        agdc.dataset_location dl ON pe.src_product_id = dl.id
-    WHERE
-        dl.uri_scheme || '://' || dl.uri_body = p_l1c_source;
-$$ LANGUAGE sql;
+CREATE OR REPLACE FUNCTION bnp.get_product_from_job_id(job_id INTEGER)
+RETURNS TEXT AS $$
+DECLARE
+    source_path TEXT;
+BEGIN
+    -- Query to retrieve and transform the product's source path
+    SELECT regexp_replace(split_part(dl.uri_body, '/', -1), '\.stac\.json$', '')
+    INTO source_path
+    FROM bnp.process_executions pe
+    INNER JOIN agdc.dataset_location dl
+    ON pe.src_product_id = dl.id
+    WHERE pe.id = job_id;
 
+    -- Check if a product was found
+    IF source_path IS NULL THEN
+        RAISE EXCEPTION 'No product found for job_id: %', job_id;
+    END IF;
+
+    -- Return the processed product name
+    RETURN source_path;
+END;
+$$ LANGUAGE plpgsql;
 
 -- --------------------------------------------------------------------------------
 --                           bnp.processing_stats
@@ -237,6 +269,108 @@ END;
 $$ LANGUAGE plpgsql;
 
 
+    worker_last_logs wll ON ws.worker_id = wll.worker_id;
+
+-- --------------------------------------------------------------------------------
+--                       bnp.get_processed_products_by_worker                   
+-- --------------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION bnp.get_processed_products_by_worker(
+    p_worker_id TEXT
+)
+RETURNS TABLE (job_id INT, l1c_source TEXT) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        pe.id AS job_id,
+        dl.uri_scheme || ':' || dl.uri_body AS l1c_source
+    FROM
+        bnp.process_executions pe
+    INNER JOIN
+        agdc.dataset_location dl ON pe.src_product_id = dl.id
+    WHERE
+        pe.worker_id = p_worker_id
+    ORDER BY pe.updated_at desc;
+
+END;
+$$ LANGUAGE plpgsql;
+
+-- --------------------------------------------------------------------------------
+--                                   bnp.products_view
+-- --------------------------------------------------------------------------------
+CREATE OR REPLACE VIEW bnp.products_view AS
+SELECT
+    pe.id AS job_id,
+    pe.worker_id,
+    dl.uri_scheme || ':' || REPLACE(dl.uri_body, '.stac.json', '.SAFE') AS source_path,
+    CASE
+        WHEN lg.total_execution_time IS NOT NULL THEN
+            LPAD(EXTRACT(MINUTE FROM lg.total_execution_time)::TEXT, 2, '0') || ':' ||
+            LPAD(EXTRACT(SECOND FROM lg.total_execution_time)::TEXT, 2, '0')
+        ELSE
+            'N/A'
+    END AS total_execution_time,
+    pe.status AS status,
+    pe.err_msg AS err_msg
+FROM
+    bnp.process_executions pe
+INNER JOIN
+    agdc.dataset_location dl ON pe.src_product_id = dl.id
+LEFT JOIN (
+    SELECT
+        l.job_id,
+        MAX(l.ts) - MIN(l.ts) AS total_execution_time
+    FROM
+        bnp.log l
+    GROUP BY
+        l.job_id
+) lg ON pe.id = lg.job_id;
+
+
+
+
+-- --------------------------------------------------------------------------------
+--                             bnp.workers_view
+-- --------------------------------------------------------------------------------
+CREATE OR REPLACE VIEW bnp.workers_view AS
+WITH worker_stats AS (
+    SELECT
+        pe.worker_id,
+        COUNT(*) AS total_jobs, 
+        SUM(CASE WHEN pe.status = 'running' THEN 1 ELSE 0 END) AS running_jobs,
+        SUM(CASE WHEN pe.status = 'finished' THEN 1 ELSE 0 END) AS finished_jobs,
+        SUM(CASE WHEN pe.status = 'failed' THEN 1 ELSE 0 END) AS failed_jobs,
+        MAX(pe.updated_at) AS last_updated_at
+    FROM
+        bnp.process_executions pe
+    WHERE
+        pe.worker_id IS NOT NULL
+    GROUP BY
+        pe.worker_id
+),
+worker_last_logs AS (
+    SELECT
+        pe.worker_id,
+        MAX(l.ts) AS last_log_time
+    FROM
+        bnp.process_executions pe
+    INNER JOIN
+        bnp.log l ON l.job_id = pe.id
+    WHERE
+        pe.worker_id IS NOT NULL
+    GROUP BY
+        pe.worker_id
+)
+SELECT
+    ws.worker_id,
+    ws.total_jobs,
+    ws.running_jobs,
+    ws.finished_jobs,
+    ws.failed_jobs,
+    GREATEST(ws.last_updated_at, wll.last_log_time) AS last_seen
+FROM
+    worker_stats ws
+LEFT JOIN
     worker_last_logs wll ON ws.worker_id = wll.worker_id;
 
 

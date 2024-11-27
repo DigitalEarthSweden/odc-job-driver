@@ -58,6 +58,9 @@ class BNPDriver:
         query = """
         SELECT * FROM bnp.get_next_processing_job(%s, %s, %s)
         """
+        print(
+            f"SELECT * FROM bnp.get_next_processing_job({self.processor_id}, {self.current_worker_id}, {src_pattern}"
+        )
         with self.connection.cursor() as cur:
             cur.execute(query, (self.processor_id, self.current_worker_id, src_pattern))
             result = cur.fetchone()
