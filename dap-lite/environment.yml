@@ -1,0 +1,17 @@
+# conda env create -f  environment.yml
+
+name: dap-lite
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.9 # Synced with the force execution env
+  - sqlalchemy
+  - fastapi
+  - itables
+  - pandas
+  - uvicorn
+  - psutil
+  - pip:
+    - -e .
+ 
