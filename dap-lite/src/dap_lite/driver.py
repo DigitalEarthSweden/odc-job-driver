@@ -4,7 +4,7 @@ from typing import List, Optional, Tuple
 import psycopg2
 from psycopg2.extras import DictCursor
 from psycopg2.extras import RealDictCursor
-
+from dap_lite.logger import log
 
 def get_worker_id():
     # Use Kubernetes pod ID if available
@@ -38,7 +38,7 @@ class BNPDriver:
         self.processor_id = kwargs.get("processor_id", 1)
         if not self.db_password:
             raise ValueError("BNP_DB_PASSWORD is not set in the environment variables")
-
+        self.driver_type="DB"
         self.connection = psycopg2.connect(
             host=self.db_host,
             port=self.db_port,
@@ -47,6 +47,7 @@ class BNPDriver:
             dbname=self.db_name,
             cursor_factory=DictCursor,
         )
+        self.connection.autocommit = True
 
     def get_next_job(
         self,
@@ -58,8 +59,8 @@ class BNPDriver:
         query = """
         SELECT * FROM bnp.get_next_processing_job(%s, %s, %s)
         """
-        print(
-            f"SELECT * FROM bnp.get_next_processing_job({self.processor_id}, {self.current_worker_id}, {src_pattern}"
+        log.debug(
+            f"SELECT * FROM bnp.get_next_processing_job('{self.processor_id}', '{self.current_worker_id}', '{src_pattern}')"
         )
         with self.connection.cursor() as cur:
             cur.execute(query, (self.processor_id, self.current_worker_id, src_pattern))

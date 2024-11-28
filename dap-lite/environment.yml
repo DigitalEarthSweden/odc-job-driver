@@ -1,17 +1,17 @@
-# conda env create -f  environment.yml
-
 name: dap-lite
 channels:
   - conda-forge
   - defaults
 dependencies:
-  - python=3.9 # Synced with the force execution env
-  - sqlalchemy
-  - fastapi
-  - itables
-  - pandas
-  - uvicorn
-  - psutil
+  - python=3.9  # Ensure this matches your project requirements
+  - sqlalchemy>=1.4  # Specify a compatible version if needed
+  - fastapi>=0.95  # Use a known stable version or range
+  - itables>=0.4.0
+  - pandas>=1.5
+  - uvicorn[standard]>=0.21
+  - psutil>=5.9
+  - boto3>=1.28  # For AWS S3 interactions
+  - pillow>=9.0  # For image processing
+  - pip>=23.0  # Update pip to the latest version
   - pip:
-    - -e .
- 
+      - -e .  # Editable install for your package

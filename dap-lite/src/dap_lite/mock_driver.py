@@ -4,8 +4,7 @@ import logging
 from typing import Tuple, Optional, List, Dict
 
 # Configure logging
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.DEBUG)
+from .logger import log
 
 
 def get_worker_id() -> str:
@@ -26,6 +25,7 @@ class BNPDriver:
 
     def __init__(self, **kwargs):  # noqa
         """Initialize the mock driver with mock job data."""
+        self.driver_type="MOCK"
         self.mock_jobs: List[Dict[str, Optional[str]]] = [
             {
                 "job_id": idx + 1,  # Assign unique job IDs starting from 1
@@ -66,13 +66,13 @@ class BNPDriver:
                 self.current_src_path = job["src_uri"]
                 self.current_job_id_and_url = job["job_id"], job["src_uri"]
 
-                logger.info(
+                log.info(
                     f"Mock get_next_job: Found job {job['job_id']} for processor {self.current_processor_id}"
                 )
                 return self.current_job_id_and_url
 
         self.current_job_id_and_url = None, None
-        logger.info(
+        log.info(
             f"Mock get_next_job: No jobs available for processor {self.current_processor_id}. Total jobs: {len(self.mock_jobs)}"
         )
         return self.current_job_id_and_url
@@ -92,14 +92,14 @@ class BNPDriver:
         for job in self.mock_jobs:
             if job["job_id"] == self.current_job_id:
                 job["status"] = "finished"
-                logger.info(
+                log.info(
                     f"Mock report_finished: Job {self.current_job_id} marked as finished. Output at {dst_path}"
                 )
                 self.current_job_id = None
                 self.current_src_path = None
                 return
 
-        logger.warning(
+        log.warning(
             f"Mock report_finished: Job {self.current_job_id} not found. Unable to mark as finished."
         )
 
@@ -110,19 +110,19 @@ class BNPDriver:
         for job in self.mock_jobs:
             if job["job_id"] == self.current_job_id:
                 job["status"] = "failed"
-                logger.warning(
+                log.warning(
                     f"Mock report_failure: Job {self.current_job_id} marked as failed. Reason: {message}"
                 )
                 return
 
-        logger.warning(
+        log.warning(
             f"Mock report_failure: Job {self.current_job_id} not found. Unable to mark as failed."
         )
 
     def store_log_message(self, message: str) -> None:
         """Stores a log message."""
         if not self.current_job_id:
-            logger.warning(
+            log.warning(
                 "Mock store_log_message: Warning - No current job. Log message not associated with a job."
             )
         self.logs.append(
@@ -132,7 +132,7 @@ class BNPDriver:
                 "l1c_source": self.current_src_path,
             }
         )
-        logger.info(
+        log.info(
             f"Mock store_log_message: Log message stored for job {self.current_job_id}: {message}"
         )
 
@@ -146,11 +146,11 @@ class BNPDriver:
             if job.get("worker_id") == worker_id and job["status"] == "finished"
         ]
         if not processed:
-            logger.info(
+            log.info(
                 f"Mock get_processed_products_by_worker: No finished products found for worker {worker_id}"
             )
         else:
-            logger.info(
+            log.info(
                 f"Mock get_processed_products_by_worker: Found {len(processed)} products for worker {worker_id}"
             )
         return processed
@@ -160,11 +160,11 @@ class BNPDriver:
         Retrieves logs for a specific L1C product.
         """
         if not l1c_source:
-            logger.warning("Mock get_logs_for_product: Invalid l1c_source provided.")
+            log.warning("Mock get_logs_for_product: Invalid l1c_source provided.")
             return []
 
         logs = [log for log in self.logs if log["l1c_source"] == l1c_source]
-        logger.info(
+        log.info(
             f"Mock get_logs_for_product: Found {len(logs)} logs for product {l1c_source}"
         )
         return logs
@@ -173,4 +173,4 @@ class BNPDriver:
         """
         Close the mock database connection.
         """
-        logger.info("Mock close: Mock connection closed.")
+        log.info("Mock close: Mock connection closed.")

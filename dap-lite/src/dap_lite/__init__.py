@@ -12,12 +12,12 @@ class DriverType(Enum):
 
 
 def get_driver(
-    driver_type: DriverType = DriverType.MOCK, **kwargs  # noqa
+    driver_type: DriverType = DriverType.MOCK,  processor_id:int = 1, **kwargs 
 ) -> BNPDriverProtocol:
     if driver_type == DriverType.DB:
-        return DB_BNPDriver()  # Return the actual DB driver
+        return DB_BNPDriver(processor_id=processor_id)  # Return the actual DB driver
     elif driver_type == DriverType.MOCK:
-        return MOCK_BNPDriver()  # Return the mock driver
+        return MOCK_BNPDriver(processor_id=processor_id)  # Return the mock driver
     else:
         raise ValueError(f"Unsupported driver type: {driver_type}")
 

@@ -12,6 +12,14 @@ from sqlalchemy.orm import sessionmaker
 from itables import show
 import itables
 import psutil
+import os
+import boto3
+from fastapi import HTTPException
+from PIL import Image
+from io import BytesIO
+
+from functools import lru_cache
+
 
 itables.init_notebook_mode(all_interactive=True)
 # Initialize FastAPI application
@@ -30,6 +38,68 @@ DATABASE_URL = (
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+s3_client = boto3.client(
+    "s3",
+    aws_access_key_id=os.getenv("AWS_ACCESS_KEY"),
+    aws_secret_access_key=os.getenv("AWS_SECRET_KEY"),
+    endpoint_url="https://s3.rise.safedc.net",
+)
+
+# Load stac as well when we have that :)
+
+
+# -------------------------------------------------------------------------------------
+# INTERNAL                  load_image_from_dest_path
+# -------------------------------------------------------------------------------------
+@lru_cache(maxsize=100)
+def load_image_from_dest_path(dst_path: str) -> Image.Image:
+    """
+    Load an image from an S3 destination URI and return it as a PIL Image object.
+
+    :param dest_path: Full S3 path (e.g., "s3://bucket-name/path/to/image.jpg")
+    :return: PIL Image object
+    """
+    try:
+        print("Looking for overview at", dst_path)
+        # Validate the S3 URI
+        if not dst_path.startswith("s3://"):
+            raise ValueError("Invalid S3 URI. Must start with 's3://'.")
+        dst_path += "/IMG_DATA/overview.jpg"
+        # Extract bucket name and key from the URI
+        bucket_name, object_key = extract_bucket_and_key(dst_path)
+
+        # Fetch the image from S3
+
+        response = s3_client.get_object(Bucket=bucket_name, Key=object_key)
+        image_data = response["Body"].read()
+        # Load the image into a PIL Image object
+        image = Image.open(BytesIO(image_data))
+        buffer = BytesIO()
+        image.save(buffer, format="PNG")
+        buffer.seek(0)
+        image_base64 = buffer.getvalue().hex()
+        return image_base64
+    except Exception as e:
+        print(f"Error loading image from S3: {type(e).__name__} {e}")
+        return None
+
+
+# -------------------------------------------------------------------------------------
+#  INTERNAL                   extract_bucket_and_key
+# -------------------------------------------------------------------------------------
+def extract_bucket_and_key(s3_path: str):
+    """
+    Extract the bucket name and key from an S3 path.
+
+    :param s3_path: Full S3 path (e.g., "s3://bucket/key")
+    :return: Tuple of (bucket_name, object_key)
+    """
+    s3_path = s3_path[5:]  # Remove 's3://'
+    bucket_name, *key_parts = s3_path.split("/")
+    object_key = "/".join(key_parts)
+    return bucket_name, object_key
+
 
 reload = "<meta http-equiv='refresh' content='2'>"
 table_options = {
@@ -171,6 +241,18 @@ def get_table(query: str, parameters: dict = None):
         result = connection.execute(text(query), parameters or {})
         rows = result.fetchall()
         return pd.DataFrame(rows, columns=result.keys())
+
+
+# -------------------------------------------------------------------------------------
+# INTERNAL                       get_overview_from_job_id
+# -------------------------------------------------------------------------------------
+def get_overview_from_job_id(job_id: str):
+    query = "SELECT dst_path FROM bnp.process_executions WHERE id = :job_id;"
+    parameters = {"job_id": job_id}
+    dst_path_result = get_table(query, parameters)
+    if dst_path_result.empty or not dst_path_result.iloc[0]["dst_path"]:
+        return None
+    return dst_path_result.iloc[0]["dst_path"]
 
 
 # -------------------------------------------------------------------------------------
@@ -458,6 +540,12 @@ async def get_logs_for_job(job_id: int):
     """
     parameters = {"p_job_id": job_id}
     logs_df = get_table(query, parameters)
+    overview_image_path = get_overview_from_job_id(job_id=job_id)
+    if overview_image_path:
+        overview_image = load_image_from_dest_path(overview_image_path)
+        overview_image = f'<img src="data:image/png;base64,{overview_image}" alt="No Overview Image Available" style="max-width: 100%;"/>'
+    else:
+        overview_image = "No Overview available"
     job_id = f"{job_id}-{get_product_from_job_id(job_id=job_id)}"
     if logs_df.empty:
         return HTMLResponse(
@@ -490,6 +578,7 @@ async def get_logs_for_job(job_id: int):
                {get_navigation_table()}
                 <div class="container">
                     <h2>Logs for Job ID {job_id}</h2>
+                    {overview_image}
                     <div class="table-responsive">{logs_table}</div>
                 </div>
             </body>
