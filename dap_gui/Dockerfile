@@ -62,4 +62,8 @@
     # Set working directory for runtime
     WORKDIR /app
 
-  
+    EXPOSE 8000
+
+    # Run the FastAPI app with Uvicorn as the default command
+    CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    

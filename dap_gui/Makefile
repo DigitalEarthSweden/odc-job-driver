@@ -10,6 +10,9 @@ build:
 start-mount: build
 	docker run --rm --name $(CONTAINER_NAME) -v $(PWD):/app -it $(IMAGE_NAME) bash
 
+start-mount-server: build
+	docker run --rm --name $(CONTAINER_NAME) -p8000:8000 -v $(PWD):/app -it $(IMAGE_NAME)  
+
 # Clean up the container and image
 clean:
 	docker rm -f $(CONTAINER_NAME) || true
