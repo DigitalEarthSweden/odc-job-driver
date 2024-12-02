@@ -69,6 +69,35 @@ CREATE INDEX idx_processor_status ON bnp.process_executions (processor_id, statu
 CREATE INDEX idx_job_id ON bnp.process_executions (id);
 
 
+-----------------------------------------------------------------------------------
+--                             bnp.acquisition_date_from_s1c_uri
+-----------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION bnp.acquisition_date_from_s1c_uri(uri_body TEXT)
+RETURNS TIMESTAMP WITH TIME ZONE AS $$
+BEGIN
+    RETURN to_timestamp(
+        regexp_replace(uri_body, '.*MSIL1C_([0-9]{8}T[0-9]{6}).*', '\1', 'g'),
+        'YYYYMMDD"T"HH24MISS'
+    );
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
+
+-----------------------------------------------------------------------------------
+--                              bnp.tile_name_from_s1c_uri
+-----------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION bnp.tile_name_from_s1c_uri(uri_body CHARACTER VARYING)
+RETURNS TEXT AS $$
+BEGIN
+    RETURN regexp_replace(
+        uri_body, 
+        '.*_T([0-9A-Z]{5}).*', -- Matches `T` followed by exactly 5 alphanumeric characters
+        '\1',
+        'g'
+    );
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
 
 -----------------------------------------------------------------------------------
 --                              bnp.get_next_processing_job
@@ -113,7 +142,7 @@ BEGIN
               FROM bnp.process_executions pe
               WHERE pe.src_product_id = source.id
           )
-        ORDER BY source.added DESC
+        ORDER BY bnp.tile_name_from_s1c_uri(source.uri_body), bnp.acquisition_date_from_s1c_uri(source.uri_body) DESC
         LIMIT 1
         FOR UPDATE SKIP LOCKED
     LOOP
@@ -303,6 +332,8 @@ SELECT
     pe.id AS job_id,
     pe.worker_id,
     dl.uri_scheme || ':' || REPLACE(dl.uri_body, '.stac.json', '.SAFE') AS source_path,
+    bnp.acquisition_date_from_s1c_uri(dl.uri_body) AS acquisition_date,
+    bnp.tile_name_from_s1c_uri(dl.uri_body) AS tile_name,
     CASE
         WHEN lg.total_execution_time IS NOT NULL THEN
             LPAD(EXTRACT(MINUTE FROM lg.total_execution_time)::TEXT, 2, '0') || ':' ||
@@ -327,6 +358,47 @@ LEFT JOIN (
 ) lg ON pe.id = lg.job_id;
 
 
+
+
+CREATE OR REPLACE FUNCTION delete_datasets_and_explorer_cache(delete_date DATE)
+RETURNS VOID AS $$
+DECLARE
+    dataset_ids UUID[];
+BEGIN
+    -- Step 1: Collect IDs of datasets added on or after the given date
+    SELECT ARRAY_AGG(id)
+    INTO dataset_ids
+    FROM agdc.dataset
+    WHERE added::date >= delete_date;
+
+    -- Step 2: Delete from ODC-dependent tables
+    DELETE FROM agdc.dataset_location
+    WHERE dataset_ref = ANY(dataset_ids);
+
+    DELETE FROM agdc.dataset_source
+    WHERE dataset_ref = ANY(dataset_ids)
+       OR source_dataset_ref = ANY(dataset_ids);
+
+    DELETE FROM agdc.dataset
+    WHERE id = ANY(dataset_ids);
+
+    -- Step 3: Delete from Explorer tables
+    DELETE FROM cubedash.dataset_spatial
+    WHERE id = ANY(dataset_ids);
+
+    -- Optional: Update product cache
+    UPDATE cubedash.product
+    SET time_earliest = NULL, time_latest = NULL, footprint = NULL
+    WHERE id IN (
+        SELECT dataset_type_ref
+        FROM agdc.dataset
+        WHERE id = ANY(dataset_ids)
+    );
+
+    -- Step 4: Notify completion
+    RAISE NOTICE 'Deleted datasets and Explorer cache for entries added on or after %', delete_date;
+END;
+$$ LANGUAGE plpgsql;
 
 
 -- --------------------------------------------------------------------------------

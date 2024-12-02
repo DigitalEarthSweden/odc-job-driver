@@ -1,0 +1,24 @@
+{
+  "name": "DAP-Lite-Control-Panel-Env",
+  "dockerComposeFile": "../../docker_compose.yml",  // Path to your Compose file
+  "service": "dap-gui",  // Name of the service to attach to
+  "workspaceFolder": "/app",  // Folder inside the container
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "python.pythonPath": "/usr/local/bin/python",
+        "python.testing.unittestEnabled": true
+      },
+      "extensions": [
+        "ms-python.python",
+        "redhat.vscode-yaml"
+      ]
+    }
+  },
+  "remoteEnv": {
+    "PYTHONPATH": "/app/src"
+  },
+  
+  "forwardPorts": [8000],  
+  "remoteUser": "ubuntu"
+}

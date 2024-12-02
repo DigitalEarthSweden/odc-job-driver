@@ -1,0 +1,15 @@
+version: "3.9"
+services:
+ dap-gui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dap-gui-dev-container
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+      - ../:/project 
+    stdin_open: true  # Keep STDIN open to allow for interactive `bash` access
+    tty: true         # Allocate a pseudo-TTY
+    entrypoint: ["/bin/bash", "-l"]  # Use bash as the entrypoint
