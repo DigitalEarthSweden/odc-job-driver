@@ -48,7 +48,7 @@ class WorkflowStep:
         elif exc_type is WorkFlowStepSkippedException:
             # Handle the skipped exception as acceptable
             self._report_skipped(elapsed_time, exc_value)
-            return True  # Suppress the exception
+            return False  # Re-raise the exception
         else:
             # An exception occurred
             self._report_failure(elapsed_time, exc_value)
