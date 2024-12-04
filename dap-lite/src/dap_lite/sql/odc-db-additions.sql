@@ -11,7 +11,7 @@ BEGIN
     END IF;
 
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'job_status') THEN
-        CREATE TYPE bnp.job_status AS ENUM ('running', 'canceled', 'failed', 'finished');
+        CREATE TYPE bnp.job_status AS ENUM ('running', 'canceled', 'failed', 'finished','skipped');
     END IF;
 END;
 $$;
@@ -98,6 +98,17 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql IMMUTABLE;
 
+-----------------------------------------------------------------------------------
+--                              bnp.product_uri_from_stac_item_uri
+-----------------------------------------------------------------------------------
+-- Future note, now we handle L1C stac item paths but we can extend this to handle
+-- other path by checking which product it is etc to calculate the source path, 
+CREATE OR REPLACE FUNCTION bnp.product_uri_from_stac_item_uri(p_uri_body TEXT)
+RETURNS TEXT AS $$
+BEGIN
+    RETURN 's3:' || REGEXP_REPLACE(p_uri_body, '\.stac(_item)?\.json$', '') || '.SAFE';
+END;
+$$ LANGUAGE plpgsql IMMUTABLE STRICT;
 
 -----------------------------------------------------------------------------------
 --                              bnp.get_next_processing_job
@@ -257,6 +268,42 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-----------------------------------------------------------------------------------
+--                         bnp.report_processing_skipped
+-----------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION bnp.report_processing_skipped(
+    p_processor_id INTEGER, 
+    p_job_id INTEGER,
+    p_message TEXT DEFAULT ''        
+)
+RETURNS VOID AS $$
+BEGIN
+    -- Validate that the job exists and is started by the specified processor
+    IF NOT EXISTS (
+        SELECT 1
+        FROM bnp.process_executions pe
+        WHERE pe.id = p_job_id
+          AND pe.processor_id = p_processor_id
+          AND pe.status = 'running'
+    ) THEN
+        RAISE EXCEPTION 'Job % is not running or not started by processor %', p_job_id, p_processor_id;
+    END IF;
+
+    -- Update the job as failed and set the error message
+    UPDATE bnp.process_executions
+    SET status = 'skipped',
+        err_msg = p_message,
+        updated_at = NOW(),
+        finished_time = NOW()
+    WHERE id = p_job_id
+      AND processor_id = p_processor_id;
+
+    PERFORM  bnp.store_log_message(
+    p_job_id, 
+    'Final status set to SKIPPED' 
+);
+END;
+$$ LANGUAGE plpgsql;
 
 -- --------------------------------------------------------------------------------
 --                            bnp.get_product_from_job_id
@@ -412,6 +459,8 @@ WITH worker_stats AS (
         SUM(CASE WHEN pe.status = 'running' THEN 1 ELSE 0 END) AS running_jobs,
         SUM(CASE WHEN pe.status = 'finished' THEN 1 ELSE 0 END) AS finished_jobs,
         SUM(CASE WHEN pe.status = 'failed' THEN 1 ELSE 0 END) AS failed_jobs,
+        SUM(CASE WHEN pe.status = 'skipped' THEN 1 ELSE 0 END) AS skipped_jobs,
+    
         MAX(pe.updated_at) AS last_updated_at
     FROM
         bnp.process_executions pe
@@ -439,6 +488,7 @@ SELECT
     ws.running_jobs,
     ws.finished_jobs,
     ws.failed_jobs,
+    ws.skipped_jobs,
     GREATEST(ws.last_updated_at, wll.last_log_time) AS last_seen
 FROM
     worker_stats ws

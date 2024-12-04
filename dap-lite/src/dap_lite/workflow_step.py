@@ -3,6 +3,10 @@ from typing import Optional, Callable
 from dap_lite import BNPDriverProtocol
 
 
+class WorkFlowStepSkippedException(Exception):
+    pass
+
+
 class WorkflowStep:
     def __init__(
         self,
@@ -41,6 +45,10 @@ class WorkflowStep:
         if exc_type is None:
             # No exception occurred
             self._report_success(elapsed_time)
+        elif exc_type is WorkFlowStepSkippedException:
+            # Handle the skipped exception as acceptable
+            self._report_skipped(elapsed_time, exc_value)
+            return True  # Suppress the exception
         else:
             # An exception occurred
             self._report_failure(elapsed_time, exc_value)
@@ -49,6 +57,16 @@ class WorkflowStep:
     def _report_success(self, elapsed_time: float):
         """Handles success reporting."""
         message = f"Step '{self.name}' succeeded in {elapsed_time:.2f} seconds."
+        if self.bnp_driver:
+            self.bnp_driver.store_log_message(
+                message=message,
+            )
+        else:
+            self.log.info(message)
+
+    def _report_skipped(self, elapsed_time: float):
+        """Handles skipped reporting."""
+        message = f"Step '{self.name}' skipped after {elapsed_time:.2f} seconds."
         if self.bnp_driver:
             self.bnp_driver.store_log_message(
                 message=message,
