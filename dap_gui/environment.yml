@@ -14,5 +14,6 @@ dependencies:
   - pillow>=9.0  # For image processing
   - pip>=23.0  # Update pip to the latest version
   - matplotlib
+  - uvicorn
   - pip:
       - psycopg2-binary
