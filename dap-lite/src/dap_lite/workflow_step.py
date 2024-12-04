@@ -64,7 +64,7 @@ class WorkflowStep:
         else:
             self.log.info(message)
 
-    def _report_skipped(self, elapsed_time: float):
+    def _report_skipped(self, elapsed_time: float, e: Exception):
         """Handles skipped reporting."""
         message = f"Step '{self.name}' skipped after {elapsed_time:.2f} seconds."
         if self.bnp_driver:
