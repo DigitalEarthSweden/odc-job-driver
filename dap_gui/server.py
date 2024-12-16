@@ -97,6 +97,8 @@ def load_image_from_dest_path(s3_image_path: str) -> str:
     except Exception as e:
         print(f"Error loading image from S3: {type(e).__name__} {e}")
         return None
+
+
 # -------------------------------------------------------------------------------------
 #  INTERNAL                   extract_bucket_and_key
 # -------------------------------------------------------------------------------------
@@ -113,19 +115,22 @@ def extract_bucket_and_key(s3_path: str):
     return bucket_name, object_key
 
 
+# -------------------------------------------------------------------------------------
+#  INTERNAL                   CONSTANTS
+# -------------------------------------------------------------------------------------
 reload = "<meta http-equiv='refresh' content='2'>"
-table_options = {
-    "justify": "center",
-    "render_links": True,
-    "escape": False,
-    "index": False,
-    "classes": [
-        "table",
-        "table-striped",
-        "table-hover",
-        "table-bordered",
-    ],  # Use the appropriate Bootstrap classes here
-}
+        table_options = {
+            "justify": "center",
+            "render_links": True,
+            "escape": False,
+            "index": False,
+            "classes": [
+                "table",
+                "table-striped",
+                "table-hover",
+                "table-bordered",
+            ],  # Use the appropriate Bootstrap classes here
+        }
 css = (
     ".dataframe {"
     "  font-family: arial, sans-serif;"
@@ -150,6 +155,7 @@ css = (
     "  margin: 0;"  # Remove margin for h3 inside table cells
     "}"
 )
+
 
 # ------------------------------------------------------------------------------------------------------------------
 # INTERNAL                                     convert_to_seconds
@@ -178,7 +184,6 @@ def convert_to_seconds(time_str):
 # ------------------------------------------------------------------------------------------------------------------
 # INTERNAL                                     get_histogram
 # ------------------------------------------------------------------------------------------------------------------
-
 def get_histogram(df: pd.DataFrame) -> str:
     """
     Generate a histogram for the 'total_execution_time' column in the DataFrame,
@@ -208,16 +213,17 @@ def get_histogram(df: pd.DataFrame) -> str:
                 seconds = int(parts[1].zfill(2))  # Pad single-digit seconds with a leading zero
                 return minutes * 60 + seconds
             else:
-                raise ValueError(f"Invalid time format: {time_str}")
+                print(f"Invalid time format: {time_str}")
+                return None
         except Exception as e:
             raise ValueError(f"Error processing time string '{time_str}': {e}")
 
     # Apply conversion to seconds
-    df['total_execution_time_seconds'] = df['total_execution_time'].apply(convert_to_seconds)
+    df['total_seconds'] = df['total_execution_time'].apply(convert_to_seconds)
+    valid_times = df['total_seconds'].dropna()
 
-    # Create the histogram using the 'total_execution_time_seconds' column
     plt.figure(figsize=(12, 6))
-    counts, bins, patches = plt.hist(df['total_execution_time_seconds'], bins=50, alpha=0.7, edgecolor='black')
+    counts, bins, patches = plt.hist(valid_times, bins=50, alpha=0.7, edgecolor='black')
 
     # Convert bin edges to min:sec format
     def seconds_to_min_sec(seconds):
