@@ -72,6 +72,8 @@ def load_image_from_dest_path(s3_image_path: str) -> str:
     :return: Base64-encoded image string for embedding in HTML
     """
     try:
+        if not s3_image_path:
+            return None
         # Validate the S3 URI
         if not s3_image_path.startswith("s3://"):
             raise ValueError("Invalid S3 URI. Must start with 's3://'.")
@@ -711,7 +713,7 @@ async def get_logs_for_job(
     logs_df = get_table(query, parameters)
 
     dst_path = get_dest_path_from_job_id(job_id=job_id)
-    overview_image_path  =   dst_path + "/overview.jpg"
+    overview_image_path  =   dst_path + "/overview.jpg" if dst_path else None
         
     if overview_image_path:
         overview_image = load_image_from_dest_path(overview_image_path)
@@ -719,7 +721,7 @@ async def get_logs_for_job(
     else:
         overview_image = "No Overview available"
 
-    esa_overview_image_path = esaL2A_from_desL2A(dst_path=dst_path)
+    esa_overview_image_path = esaL2A_from_desL2A(dst_path=dst_path) if dst_path else None
     if esa_overview_image_path:
         esa_overview_image = load_image_from_dest_path(esa_overview_image_path)
         esa_overview_image = f'<img src="data:image/png;base64,{esa_overview_image}" alt="No Overview Image Available" style="max-width: 100%;"/>'
