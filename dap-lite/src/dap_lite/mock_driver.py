@@ -103,6 +103,24 @@ class BNPDriver:
             f"Mock report_finished: Job {self.current_job_id} not found. Unable to mark as finished."
         )
 
+    def report_skipped(self, message: str = "") -> None:
+        """
+        Mark the job as skipped.
+        """
+        for job in self.mock_jobs:
+            if job["job_id"] == self.current_job_id:
+                job["status"] = "skipped"
+                log.info(
+                    f"Mock report_skipped: Job {self.current_job_id} marked as skipped. Reason: {message}"
+                )
+                self.current_job_id = None
+                self.current_src_path = None
+                return
+
+        log.warning(
+            f"Mock report_skipped: Job {self.current_job_id} not found. Unable to mark as skipped."
+        )
+
     def report_failure(self, message: str) -> None:
         """
         Mark the job as failed.

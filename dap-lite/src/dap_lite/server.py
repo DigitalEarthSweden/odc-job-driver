@@ -65,7 +65,8 @@ def load_image_from_dest_path(dst_path: str) -> Image.Image:
         # Validate the S3 URI
         if not dst_path.startswith("s3://"):
             raise ValueError("Invalid S3 URI. Must start with 's3://'.")
-        dst_path += "/IMG_DATA/overview.jpg"
+        dst_path += "/overview.jpg"
+        print("Trying to load overview image from ", dst_path)
         # Extract bucket name and key from the URI
         bucket_name, object_key = extract_bucket_and_key(dst_path)
 
@@ -448,12 +449,11 @@ def get_product_from_job_id(job_id: int) -> str:
         return "Unknown Product"
 
 
-# -------------------------------------------------------------------------------------
-# API GET                     /products                              ->products_summary
-# -------------------------------------------------------------------------------------
 @app.get("/products", response_class=HTMLResponse)
 async def products_summary(
-    worker_id: Optional[str] = None, only_failed: Optional[bool] = False
+    worker_id: Optional[str] = None,
+    only_failed: Optional[bool] = False,
+    auto_refresh: Optional[bool] = False,
 ):
     """View summarizing the worker status."""
     query = "SELECT * from bnp.products_view"
@@ -498,12 +498,16 @@ async def products_summary(
         if worker_id:
             html_table += f" for worker {worker_id}"
     worker_presentation = f" for worker {worker_id} " if worker_id else ""
-    reload_if = reload if worker_id and len(pd) < 20 else ""
+
+    # Determine auto-refresh state and toggle link
+    auto_refresh_toggle = "ON" if not auto_refresh else "OFF"
+    new_auto_refresh = "true" if not auto_refresh else "false"
+
     return HTMLResponse(
         content=f"""
         <html>
             <head>
-                {reload_if}
+                {'<meta http-equiv="refresh" content="10">' if auto_refresh else ''}
                 <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
                 <style>{css}</style>
             </head>
@@ -511,6 +515,12 @@ async def products_summary(
                 {get_navigation_table()}
                 <div class="container">
                     <h1>Products Summary {worker_presentation}</h1>
+                    <div class="mb-3">
+                        <a href="/products?worker_id={worker_id or ''}&only_failed={str(only_failed).lower()}&auto_refresh={new_auto_refresh}" 
+                           class="btn btn-primary">
+                           Auto Refresh {auto_refresh_toggle}
+                        </a>
+                    </div>
                     <div class="table-responsive">{html_table}</div>
                 </div>
             </body>
@@ -523,17 +533,20 @@ async def products_summary(
 # API GET                        /logs{job_id}                       ->get_logs_for_job
 # -------------------------------------------------------------------------------------
 @app.get("/logs/{job_id}", response_class=HTMLResponse)
-async def get_logs_for_job(job_id: int):
+async def get_logs_for_job(
+    job_id: int, product_id: Optional[str] = None, auto_refresh: Optional[bool] = True
+):
     """
     Endpoint to fetch logs for a specific job ID.
 
     Args:
         job_id (int): The job ID to fetch logs for.
+        product_id (str): Optional product ID.
+        auto_refresh (bool): Whether auto-refresh is enabled.
 
     Returns:
         HTMLResponse: A rendered HTML table of logs for the job ID.
     """
-
     query = """
         SELECT *
         FROM bnp.get_logs_from_job_id(:p_job_id);
@@ -546,7 +559,9 @@ async def get_logs_for_job(job_id: int):
         overview_image = f'<img src="data:image/png;base64,{overview_image}" alt="No Overview Image Available" style="max-width: 100%;"/>'
     else:
         overview_image = "No Overview available"
-    job_id = f"{job_id}-{get_product_from_job_id(job_id=job_id)}"
+
+    job_id_str = f"{job_id}-{get_product_from_job_id(job_id=job_id)}"
+
     if logs_df.empty:
         return HTMLResponse(
             content=f"""
@@ -556,7 +571,7 @@ async def get_logs_for_job(job_id: int):
                 </head>
                 <body>
                    {get_navigation_table()}
-                    <h1>No logs found</h1> for Job ID {job_id}
+                    <h1>No logs found</h1> for Job ID {job_id_str}
                 </body>
             </html>
             """
@@ -566,18 +581,27 @@ async def get_logs_for_job(job_id: int):
         logs_df, style="table-layout:auto;width:100%;"
     )
 
+    auto_refresh_toggle = "ON" if not auto_refresh else "OFF"
+    new_auto_refresh = "true" if not auto_refresh else "false"
+
     return HTMLResponse(
         content=f"""
         <html>
             <head>
-                 {reload}
+                {'<meta http-equiv="refresh" content="10">' if auto_refresh else ''}
                 <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
                 <style>{css}</style>
             </head>
             <body>
                {get_navigation_table()}
                 <div class="container">
-                    <h2>Logs for Job ID {job_id}</h2>
+                    <h2>Logs for Job ID {job_id_str}</h2>
+                    <div class="mb-3">
+                        <a href="/logs/{job_id}?product_id={product_id or ''}&auto_refresh={new_auto_refresh}" 
+                           class="btn btn-primary">
+                           Auto Refresh {auto_refresh_toggle}
+                        </a>
+                    </div>
                     {overview_image}
                     <div class="table-responsive">{logs_table}</div>
                 </div>

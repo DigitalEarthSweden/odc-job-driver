@@ -1,8 +1,14 @@
-# This can be put in a table if we go "bigger"
+# This can be put in a table if we go "bigger". Below is just an idea.
+#  For now, the number (id) is the only thing used.
+# any numbers of processors can process things using any number of workers
+# as long as the id differs.
+# eg, we can process one baseline with thresholds X as id 3, and another
+# with id 5 and they will process all products
+# independently.
 PROCESSORS = [
     {
         "id": 1,
-        "processor_name": "BNP-Sentinel2_L2A_Processor",
+        "processor_name": "BNP-Sentinel2_L2A_Force_Processor",
         "source_product_name": "S2A_MSIL1C",
         "target_product_name": "S2A_MSIL2A_{date}_N{baseline}_R{orbit}_T{tile_id}",  # noqa
         "sensor_name": "MSI",

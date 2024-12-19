@@ -94,6 +94,19 @@ class BNPDriver:
         self.current_job_id = None
         self.current_src_path = None
 
+    def report_skipped(self, message: str = ""):
+        """
+        Mark the job as skipped.
+        """
+        query = """
+        SELECT bnp.report_skipped_processing(%s, %s, %s);
+        """
+        with self.connection.cursor() as cur:
+            cur.execute(query, (self.processor_id, self.current_job_id, message))
+            self.connection.commit()
+        self.current_job_id = None
+        self.current_src_path = None
+
     def report_failure(self, message: str):
         """
         Mark the job as failed.

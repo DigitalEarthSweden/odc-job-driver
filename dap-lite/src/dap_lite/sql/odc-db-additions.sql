@@ -68,6 +68,18 @@ $$;
 CREATE INDEX idx_processor_status ON bnp.process_executions (processor_id, status);
 CREATE INDEX idx_job_id ON bnp.process_executions (id);
 
+-----------------------------------------------------------------------------------
+--                             bnp.baseline_from_s1c_uri
+-----------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION bnp.baseline_from_s1c_uri(uri_body TEXT)
+RETURNS INTEGER AS $$
+BEGIN
+    RETURN CAST(
+        regexp_replace(uri_body, '.*_N([0-9]{4})_.*', '\1', 'g')
+        AS INTEGER
+    );
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
 
 -----------------------------------------------------------------------------------
 --                             bnp.acquisition_date_from_s1c_uri

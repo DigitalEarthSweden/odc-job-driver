@@ -47,11 +47,11 @@ class WorkflowStep:
             self._report_success(elapsed_time)
         elif exc_type is WorkFlowStepSkippedException:
             # Handle the skipped exception as acceptable
-            self._report_skipped(elapsed_time, exc_value)
+            self._log_skipped(elapsed_time, exc_value)
             return False  # Re-raise the exception
         else:
             # An exception occurred
-            self._report_failure(elapsed_time, exc_value)
+            self._log_failure(elapsed_time, exc_value)
             return False  # Re-raise the exception
 
     def _report_success(self, elapsed_time: float):
@@ -64,7 +64,7 @@ class WorkflowStep:
         else:
             self.log.info(message)
 
-    def _report_skipped(self, elapsed_time: float, e: Exception):
+    def _log_skipped(self, elapsed_time: float, e: Exception):
         """Handles skipped reporting."""
         message = f"Step '{self.name}' skipped after {elapsed_time:.2f} seconds."
         if self.bnp_driver:
@@ -74,7 +74,7 @@ class WorkflowStep:
         else:
             self.log.info(message)
 
-    def _report_failure(self, elapsed_time: float, e: Exception):
+    def _log_failure(self, elapsed_time: float, e: Exception):
         """Handles failure reporting."""
         reason = f"{type(e).__name__},{str(e)}" if e else "Unknown error"
         message = f"Step '{self.name}' failed after {elapsed_time:.2f} seconds. Reason: {reason}"

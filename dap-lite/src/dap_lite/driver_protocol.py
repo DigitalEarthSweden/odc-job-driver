@@ -27,6 +27,10 @@ class BNPDriverProtocol(Protocol):
         """Mark the job as failed."""
         pass
 
+    def report_skipped(self, message: str) -> None:
+        """Mark the job as skipped"""
+        pass
+
     def store_log_message(self, message: str) -> None:
         """Store a log message for the given job."""
         pass

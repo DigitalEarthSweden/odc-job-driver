@@ -2,7 +2,7 @@ import time
 import sys
 import os
 from dap_lite import get_driver, DriverType
-from dap_lite.workflow_step import WorkflowStep
+from dap_lite.workflow_step import WorkflowStep, WorkFlowStepSkippedException
 import random
 import logging
 
@@ -77,6 +77,8 @@ try:
 
             log.debug(f"Job {job_id} finished successfully.")
             driver.report_finished("s3://dummy/path")
+        except WorkFlowStepSkippedException:
+            driver.report_skipped("Skipped for some good reasons")
         except ValueError as e:
             log.info(
                 f"Now we have handled the error and continue execution. Error info:{type(e)} {e}"
