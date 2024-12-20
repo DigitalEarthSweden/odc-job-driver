@@ -22,7 +22,7 @@ from io import BytesIO
 import io
 import matplotlib.pyplot as plt
 from functools import lru_cache
-
+from typing import List
 
 ## MASS INSERT
 # INSERT INTO bnp.dataset_location
@@ -99,8 +99,6 @@ def load_image_from_dest_path(s3_image_path: str) -> str:
     except Exception as e:
         print(f"Error loading image from S3: {type(e).__name__} {e}")
         return None
-
-
 # -------------------------------------------------------------------------------------
 #  INTERNAL                   extract_bucket_and_key
 # -------------------------------------------------------------------------------------
@@ -117,22 +115,19 @@ def extract_bucket_and_key(s3_path: str):
     return bucket_name, object_key
 
 
-# -------------------------------------------------------------------------------------
-#  INTERNAL                   CONSTANTS
-# -------------------------------------------------------------------------------------
 reload = "<meta http-equiv='refresh' content='2'>"
-        table_options = {
-            "justify": "center",
-            "render_links": True,
-            "escape": False,
-            "index": False,
-            "classes": [
-                "table",
-                "table-striped",
-                "table-hover",
-                "table-bordered",
-            ],  # Use the appropriate Bootstrap classes here
-        }
+table_options = {
+    "justify": "center",
+    "render_links": True,
+    "escape": False,
+    "index": False,
+    "classes": [
+        "table",
+        "table-striped",
+        "table-hover",
+        "table-bordered",
+    ],  # Use the appropriate Bootstrap classes here
+}
 css = (
     ".dataframe {"
     "  font-family: arial, sans-serif;"
@@ -157,7 +152,6 @@ css = (
     "  margin: 0;"  # Remove margin for h3 inside table cells
     "}"
 )
-
 
 # ------------------------------------------------------------------------------------------------------------------
 # INTERNAL                                     convert_to_seconds
@@ -186,6 +180,7 @@ def convert_to_seconds(time_str):
 # ------------------------------------------------------------------------------------------------------------------
 # INTERNAL                                     get_histogram
 # ------------------------------------------------------------------------------------------------------------------
+
 def get_histogram(df: pd.DataFrame) -> str:
     """
     Generate a histogram for the 'total_execution_time' column in the DataFrame,
@@ -215,17 +210,16 @@ def get_histogram(df: pd.DataFrame) -> str:
                 seconds = int(parts[1].zfill(2))  # Pad single-digit seconds with a leading zero
                 return minutes * 60 + seconds
             else:
-                print(f"Invalid time format: {time_str}")
-                return None
+                raise ValueError(f"Invalid time format: {time_str}")
         except Exception as e:
             raise ValueError(f"Error processing time string '{time_str}': {e}")
 
     # Apply conversion to seconds
-    df['total_seconds'] = df['total_execution_time'].apply(convert_to_seconds)
-    valid_times = df['total_seconds'].dropna()
+    df['total_execution_time_seconds'] = df['total_execution_time'].apply(convert_to_seconds)
 
+    # Create the histogram using the 'total_execution_time_seconds' column
     plt.figure(figsize=(12, 6))
-    counts, bins, patches = plt.hist(valid_times, bins=50, alpha=0.7, edgecolor='black')
+    counts, bins, patches = plt.hist(df['total_execution_time_seconds'], bins=50, alpha=0.7, edgecolor='black')
 
     # Convert bin edges to min:sec format
     def seconds_to_min_sec(seconds):
@@ -282,6 +276,7 @@ def get_navigation_table() -> str:
                     <td><a href='/status-summary'>Status Summary</a></td>
                     <td><a href='/workers'>Workers</a></td>
                     <td><a href='/products'>Products</a></td>
+                     <td><a href='/cloud_stats'>Cloud Stats</a></td>
                     
                 </tr>
             </tbody>
@@ -348,6 +343,7 @@ def format_status(status):
         "canceled": "yellow",
         "failed": "red",
         "finished": "green",
+        "skipped":"gray"
     }
 
     res = f'<span style="color: {state_colormap.get(str(status),str(status))}">{str(status)}</span>'
@@ -624,6 +620,7 @@ async def products_summary(
         Create a clickable link for the product name.
         """
         product_name = get_product_name_from_uri(row["source_path"])
+        # skip the processing date to have more space in the view.
         job_id = row["job_id"]  # Assuming the job_id column exists in the view
         return f'<a href="/logs/{job_id}">{product_name}</a>'
 
@@ -658,33 +655,46 @@ async def products_summary(
     auto_refresh_toggle = "ON" if not auto_refresh else "OFF"
     new_auto_refresh = "true" if not auto_refresh else "false"
 
-
-
     return HTMLResponse(
-        content=f"""
-        <html>
-            <head>
-                {'<meta http-equiv="refresh" content="10">' if auto_refresh else ''}
-                <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
-                <style>{css}</style>
-            </head>
-            <body>
-                {get_navigation_table()}
-                <div class="container">
-                    <h1>Products Summary {worker_presentation}</h1>
-                    {histogram_image}
-                    <div class="mb-3">
-                        <a href="/products?worker_id={worker_id or ''}&only_failed={str(only_failed).lower()}&auto_refresh={new_auto_refresh}" 
-                           class="btn btn-primary">
-                           Auto Refresh {auto_refresh_toggle}
-                        </a>
-                    </div>
-                    <div class="table-responsive">{html_table}</div>
+    content=f"""
+    <html>
+        <head>
+            {'<meta http-equiv="refresh" content="10">' if auto_refresh else ''}
+            <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+            <style>
+                {css}
+                .container {{
+                    max-width: 100%; 
+                    padding: 20px;
+                }}
+                table {{
+                    width: 100%;  
+                    border-collapse: collapse;
+                }}
+                th, td {{
+                    text-align: left;
+                    padding: 8px;
+                    border: 1px solid #ddd;
+                }}
+            </style>
+        </head>
+        <body>
+            {get_navigation_table()}
+            <div class="container">
+                <h1>Products Summary {worker_presentation}</h1>
+                {histogram_image}
+                <div class="mb-3">
+                    <a href="/products?worker_id={worker_id or ''}&only_failed={str(only_failed).lower()}&auto_refresh={new_auto_refresh}" 
+                       class="btn btn-primary">
+                       Auto Refresh {auto_refresh_toggle}
+                    </a>
                 </div>
-            </body>
-        </html>
-        """
-    )
+                <div class="table-responsive">{html_table}</div>
+            </div>
+        </body>
+    </html>
+    """
+)
 
 
 # -------------------------------------------------------------------------------------
@@ -786,6 +796,144 @@ async def get_logs_for_job(
                         </tr>
                     </table>
                     <div class="table-responsive">{logs_table}</div>
+                </div>
+            </body>
+        </html>
+        """
+    )
+
+# -------------------------------------------------------------------------------------
+# INTERNAL FUNCTION                    get_scatter_plot
+# -------------------------------------------------------------------------------------
+def get_scatter_plot(df: pd.DataFrame, y_column: str, title: str, color: str, marker: str) -> str:
+    """
+    Generate a scatter plot for a single column and return it as a Base64 string.
+
+    Args:
+        df (pd.DataFrame): DataFrame containing the data.
+        y_column (str): The column to plot on the y-axis.
+        title (str): The title of the plot.
+        color (str): The color of the dots in the scatter plot.
+        marker (str): The marker style for the scatter plot.
+
+    Returns:
+        str: Base64-encoded image string of the scatter plot.
+    """
+    plt.figure(figsize=(12, 6))
+    plt.scatter(df['acquisition_date'], df[y_column], color=color, alpha=0.7, marker=marker)
+    
+    # Add titles and labels
+    plt.title(title, fontsize=14)
+    plt.xlabel('Acquisition Date', fontsize=12)
+    plt.ylabel('Percentage (%)', fontsize=12)
+    plt.grid(alpha=0.3)
+    
+    # Format x-axis for better readability
+    plt.xticks(rotation=45, fontsize=10)
+    plt.tight_layout()
+
+    # Save the plot to a BytesIO buffer
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', bbox_inches='tight')
+    buf.seek(0)
+    plt.close()
+
+    # Encode the image in base64
+    image_base64 = base64.b64encode(buf.read()).decode('utf-8')
+    buf.close()
+
+    return image_base64
+
+@app.get("/cloud_stats", response_class=HTMLResponse)
+async def cloud_stats(tile: List[str] = Query(default=["all"], alias="tile[]")):
+    """
+    Generate scatter plots for cloud statistics from bnp.cloud_skips view, filtered by tiles.
+    """
+    if "all" in tile:
+        selected_tiles = []
+    else:
+        selected_tiles = tile
+
+    # Query to fetch data
+    query = "SELECT acquisition_date, dc, wc, sc, cc, tile_name FROM bnp.cloud_skips"
+    df = get_table(query)
+
+    # Ensure the acquisition_date column is in datetime format
+    df['acquisition_date'] = pd.to_datetime(df['acquisition_date'])
+
+    # Parse the tile argument into a list
+    #selected_tiles = tile.split(",") if tile != "all" else []
+    available_tiles = df['tile_name'].unique().tolist()
+
+    # Filter by selected tiles
+    if selected_tiles:
+        df = df[df['tile_name'].isin(selected_tiles)]
+
+    # Generate individual plots for each statistic
+    plots = {
+        "Cloud Coverage": get_scatter_plot(df, "cc", "Cloud Coverage Percentage Over Time", "red", "d"),
+        "Data Coverage": get_scatter_plot(df, "dc", "Data Coverage Percentage Over Time", "blue", "o"),
+        "Water Coverage": get_scatter_plot(df, "wc", "Water Coverage Percentage Over Time", "green", "s"),
+        "Snow Coverage": get_scatter_plot(df, "sc", "Snow Coverage Percentage Over Time", "orange", "^"), 
+    }
+
+    
+    # Determine button colors based on selection
+    dropdown_button_class = "btn-primary" if tile == "all" else "btn-success"
+    update_button_class = "btn-secondary" if tile == "all" else "btn-success"
+
+    # Generate the HTML for the dropdown items
+    dropdown_items = "".join(
+        f"""
+        <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="tile[]" value="{t}" id="tile-{t}" {"checked" if t in selected_tiles else ""}>
+            <label class="form-check-label" for="tile-{t}">
+                {t}
+            </label>
+        </div>
+        """
+        for t in available_tiles
+    )
+
+    # Combine the dropdown with buttons
+    dropdown_html = f"""
+        <form action="/cloud_stats" method="get" class="d-flex align-items-center">
+            <div class="dropdown mr-3">
+                <button class="btn {dropdown_button_class} dropdown-toggle" type="button" id="tileDropdown" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                    {("All Tiles" if tile == "all" else f"{len(selected_tiles)} Selected")}
+                </button>
+                <div class="dropdown-menu p-3" aria-labelledby="tileDropdown" style="min-width: 300px;">
+                    {dropdown_items}
+                </div>
+            </div>
+            <button type="submit" class="btn {update_button_class}">Update</button>
+        </form>
+    """
+
+    # Combine plots into HTML
+    plots_html = "".join(
+        f"""
+        <div class="container">
+            <h2>{label} Scatter Plot</h2>
+            <img src="data:image/png;base64,{image}" alt="{label} Plot" style="max-width: 100%;"/>
+        </div>
+        """
+        for label, image in plots.items()
+    )
+
+    return HTMLResponse(
+        content=f"""
+        <html>
+            <head>
+                <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+                <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+                <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"></script>
+            </head>
+            <body>
+                <div class="container">
+                    <h1>Cloud Statistics Scatter Plots for *Skipped* Products</h1>
+                    {dropdown_html}
+                    {plots_html}
                 </div>
             </body>
         </html>
